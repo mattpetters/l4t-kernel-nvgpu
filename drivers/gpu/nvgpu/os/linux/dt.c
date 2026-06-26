@@ -27,3 +27,11 @@ int nvgpu_dt_read_u32_index(struct gk20a *g, const char *name,
 
 	return of_property_read_u32_index(np, name, index, value);
 }
+
+bool nvgpu_dt_read_bool(struct gk20a *g, const char *name)
+{
+	struct device *dev = dev_from_gk20a(g);
+	struct device_node *np = dev->of_node;
+
+	return of_property_read_bool(np, name);
+}

@@ -26,3 +26,5 @@ struct gk20a;
 
 int nvgpu_dt_read_u32_index(struct gk20a *g, const char *name,
 				u32 index, u32 *value);
+
+bool nvgpu_dt_read_bool(struct gk20a *g, const char *name);

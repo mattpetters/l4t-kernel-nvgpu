@@ -23,6 +23,7 @@
  */
 
 #include <nvgpu/soc.h>
+#include <nvgpu/dt.h>
 #include <nvgpu/fuse.h>
 #include <nvgpu/bug.h>
 #include <nvgpu/log.h>
@@ -68,6 +69,21 @@ static struct pll_parms gpc_pll_params_b1 = {
 	5,			/* IDDQ mode exit delay */
 };
 
+static struct pll_parms gpc_pll_params_b1_extreme = {
+	128000,  3600000,	/* freq */
+	1300000, 3600000,	/* vco */
+	12000,   38400,		/* u */
+	1, 255,			/* M */
+	8, 255,			/* N */
+	1, 31,			/* PL */
+	-165230, 214007,	/* DFS_COEFF */
+	0, 0,			/* ADC char coeff - to be read from fuses */
+	0x7 << 3,		/* vco control in NA mode */
+	500,			/* Locking and ramping timeout */
+	40,			/* Lock delay in NA mode */
+	5,			/* IDDQ mode exit delay */
+};
+
 static struct pll_parms gpc_pll_params_c1 = {
 	76800,   2600000,	/* freq */
 	1300000, 2600000,	/* vco */
@@ -83,6 +99,24 @@ static struct pll_parms gpc_pll_params_c1 = {
 	5,			/* IDDQ mode exit delay */
 	0x3 << 10,		/* DFS control settings */
 };
+
+static struct pll_parms gpc_pll_params_c1_extreme = {
+	76800,   3600000,	/* freq */
+	1300000, 3600000,	/* vco */
+	19200,   38400,		/* u */
+	1, 255,			/* M */
+	8, 255,			/* N */
+	1, 31,			/* PL */
+	-172550, 195374,	/* DFS_COEFF */
+	0, 0,			/* ADC char coeff - to be read from fuses */
+	(0x1 << 3) | 0x7,	/* vco control in NA mode */
+	500,			/* Locking and ramping timeout */
+	40,			/* Lock delay in NA mode */
+	5,			/* IDDQ mode exit delay */
+	0x3 << 10,		/* DFS control settings */
+};
+
+static bool extreme_oc;
 
 static struct pll_parms gpc_pll_params;
 
@@ -1196,6 +1230,14 @@ int gm20b_init_clk_setup_sw(struct gk20a *g)
 	unsigned long safe_rate;
 	int err;
 
+	/*
+	 * Extreme overclocking raises the GPCPLL VCO/freq ceiling well past the
+	 * stock limits and is only safe with the matching extreme dvfs/voltage
+	 * tables. Gate it on the same "allow-extreme-oc" property hekate/U-Boot
+	 * sets on this GPU node so it tracks the dvfs, dfll and cpufreq drivers.
+	 */
+	extreme_oc = nvgpu_dt_read_bool(g, "allow-extreme-oc");
+
 	nvgpu_log_fn(g, " ");
 
 	err = nvgpu_mutex_init(&clk->clk_mutex);
@@ -1209,16 +1251,21 @@ int gm20b_init_clk_setup_sw(struct gk20a *g)
 	}
 
 	if (clk->gpc_pll.id == GM20B_GPC_PLL_C1) {
-		gpc_pll_params = gpc_pll_params_c1;
+		gpc_pll_params = extreme_oc ? gpc_pll_params_c1_extreme :
+					      gpc_pll_params_c1;
 		if (!clk->pll_poweron_uv) {
 			clk->pll_poweron_uv = BOOT_GPU_UV_C1;
 		}
 	} else {
-		gpc_pll_params = gpc_pll_params_b1;
+		gpc_pll_params = extreme_oc ? gpc_pll_params_b1_extreme :
+					      gpc_pll_params_b1;
 		if (!clk->pll_poweron_uv) {
 			clk->pll_poweron_uv = BOOT_GPU_UV_B1;
 		}
 	}
+
+	if (extreme_oc)
+		nvgpu_info(g, "GPCPLL: extreme OC tables selected");
 
 	clk->gpc_pll.clk_in = g->ops.clk.get_ref_clock_rate(g) / KHZ;
 	if (clk->gpc_pll.clk_in == 0) {
